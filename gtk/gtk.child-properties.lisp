@@ -60,19 +60,33 @@
   (class (:pointer g-object-class))
   (n-properties (:pointer :int)))
 
+(defmethod container-class-list-child-properties-fn (g-type))
+
+(defmethod container-class-list-child-properties-fn ((g-type string))
+  (let ((maybe-props (container-class-list-child-properties-fn (find-symbol g-type :keyword)))
+        (parent (g-type-parent g-type)))
+    (or maybe-props
+        (and parent
+             (container-class-list-child-properties-fn parent)))))
+
+(defmethod container-class-list-child-properties-fn ((g-type (eql :|GtkContainer|)))
+  #'gtk-container-class-list-child-properties)
+
 (defun container-class-child-properties (g-type)
-  (setf g-type (ensure-g-type g-type))
-  (let ((g-class (g-type-class-ref g-type)))
-    (unwind-protect
-         (with-foreign-object (n-properties :uint)
-           (let ((params (gtk-container-class-list-child-properties g-class n-properties)))
-             (unwind-protect
-                  (loop
-                     for i from 0 below (mem-ref n-properties :uint)
-                     for param = (mem-aref params :pointer i)
-                     collect (parse-g-param-spec param))
-               (g-free params))))
-      (g-type-class-unref g-class))))
+  (let ((list-properties-fn (container-class-list-child-properties-fn g-type)))
+    (when list-properties-fn
+     (setf g-type (ensure-g-type (string g-type)))
+     (let ((g-class (g-type-class-ref g-type)))
+       (unwind-protect
+            (with-foreign-object (n-properties :uint)
+              (let ((params (funcall list-properties-fn g-class n-properties)))
+                (unwind-protect
+                     (loop
+                       for i from 0 below (mem-ref n-properties :uint)
+                       for param = (mem-aref params :pointer i)
+                       collect (parse-g-param-spec param))
+                  (g-free params))))
+         (g-type-class-unref g-class))))))
 
 (defun child-property-name (type-name property-name package-name)
   (intern (format nil "~A-CHILD-~A" (symbol-name (registered-object-type-by-name type-name)) (string-upcase property-name)) (find-package package-name)))

@@ -7,6 +7,7 @@
            #:text-buffer-insert
            #:define-child-property
            #:container-class-child-properties
+           #:container-class-list-child-properties-fn
            #:generate-child-properties
            #:tree-lisp-store
            #:tree-lisp-store-root
