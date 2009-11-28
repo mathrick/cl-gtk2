@@ -73,20 +73,26 @@
   #'gtk-container-class-list-child-properties)
 
 (defun container-class-child-properties (g-type)
-  (let ((list-properties-fn (container-class-list-child-properties-fn g-type)))
-    (when list-properties-fn
+  (let ((list-properties-fns
+         (remove nil
+                 (mapcar #'container-class-list-child-properties-fn
+                         (apply #'list g-type (g-type-interfaces g-type))))))
+    (when list-properties-fns
      (setf g-type (ensure-g-type (string g-type)))
      (let ((g-class (g-type-class-ref g-type)))
-       (unwind-protect
-            (with-foreign-object (n-properties :uint)
-              (let ((params (funcall list-properties-fn g-class n-properties)))
-                (unwind-protect
-                     (loop
-                       for i from 0 below (mem-ref n-properties :uint)
-                       for param = (mem-aref params :pointer i)
-                       collect (parse-g-param-spec param))
-                  (g-free params))))
-         (g-type-class-unref g-class))))))
+       (apply #'nconc
+        (loop for list-properties-fn in list-properties-fns
+              collecting 
+           (unwind-protect
+                (with-foreign-object (n-properties :uint)
+                  (let ((params (funcall list-properties-fn g-class n-properties)))
+                    (unwind-protect
+                         (loop
+                           for i from 0 below (mem-ref n-properties :uint)
+                           for param = (mem-aref params :pointer i)
+                           collect (parse-g-param-spec param))
+                      (g-free params))))
+             (g-type-class-unref g-class))))))))
 
 (defun child-property-name (type-name property-name package-name)
   (intern (format nil "~A-CHILD-~A" (symbol-name (registered-object-type-by-name type-name)) (string-upcase property-name)) (find-package package-name)))
