@@ -8,6 +8,8 @@
            #:define-child-property
            #:container-class-child-properties
            #:container-class-list-child-properties-fn
+           #:container-get-property-getter
+           #:container-get-property-setter
            #:generate-child-properties
            #:tree-lisp-store
            #:tree-lisp-store-root

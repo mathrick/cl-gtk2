@@ -25,20 +25,30 @@
 
 (export 'container-child-property-info)
 
+(defmethod container-get-property-getter ((container container))
+  #'gtk-container-child-get-property)
+
+(defmethod container-get-property-setter ((container container))
+  #'gtk-container-child-set-property)
+
 (defun container-call-get-property (container child property-name type)
-  (with-foreign-object (gvalue 'g-value)
-    (g-value-zero gvalue)
-    (g-value-init gvalue (ensure-g-type type))
-    (gtk-container-child-get-property container child property-name gvalue)
-    (prog1 (parse-g-value gvalue)
-      (g-value-unset gvalue))))
+  (let ((getter (container-get-property-getter container)))
+    (when getter
+      (with-foreign-object (gvalue 'g-value)
+        (g-value-zero gvalue)
+        (g-value-init gvalue (ensure-g-type type))
+        (funcall getter container child property-name gvalue)
+        (prog1 (parse-g-value gvalue)
+          (g-value-unset gvalue))))))
 
 (defun container-call-set-property (container child property-name new-value type)
-  (with-foreign-object (gvalue 'g-value)
-    (set-g-value gvalue new-value (ensure-g-type type) :zero-g-value t)
-    (gtk-container-child-set-property container child property-name gvalue)
-    (g-value-unset gvalue)
-    (values)))
+  (let ((setter (container-get-property-setter container)))
+    (when setter
+      (with-foreign-object (gvalue 'g-value)
+        (set-g-value gvalue new-value (ensure-g-type type) :zero-g-value t)
+        (funcall setter container child property-name gvalue)
+        (g-value-unset gvalue)
+        (values)))))
 
 (export '(container-call-get-property container-call-set-property))
 
@@ -78,7 +88,9 @@
                  (mapcar #'container-class-list-child-properties-fn
                          (apply #'list g-type (g-type-interfaces g-type))))))
     (when list-properties-fns
-     (setf g-type (ensure-g-type (string g-type)))
+      (setf g-type (ensure-g-type (typecase g-type
+                                    (integer g-type)
+                                    (t (string g-type)))))
      (let ((g-class (g-type-class-ref g-type)))
        (apply #'nconc
         (loop for list-properties-fn in list-properties-fns
