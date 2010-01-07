@@ -84,6 +84,61 @@
                "pango_font_get_type")
   nil)
 
+(define-g-enum "PangoStyle" pango-style
+    (:export t :type-initializer "pango_style_get_type")
+  (:normal 0)
+  (:oblique 1)
+  (:italic 2))
+
+(define-g-enum "PangoVariant" pango-variant
+    (:export t :type-initializer "pango_variant_get_type")
+  (:normal 0)
+  (:small-caps 1))
+
+(define-g-enum "PangoWeight" pango-weight
+    (:export t :type-initializer "pango_weight_get_type")
+  (:thin 100)
+  (:ultralight 200)
+  (:light 300)
+  (:book 380)
+  (:normal 400)
+  (:medium 500)
+  (:semibold 600)
+  (:bold 700)
+  (:ultrabold 800)
+  (:heavy 900)
+  (:ultraheavy 1000))
+
+(define-g-enum "PangoStretch" pango-stretch
+    (:export t :type-initializer "pango_stretch_get_type")
+  (:ultra-condensed 0)
+  (:extra-condensed 1)
+  (:condensed 2)
+  (:semi-condensed 3)
+  (:normal 4)
+  (:semi-expanded 5)
+  (:expanded 6)
+  (:extra-expanded 7)
+  (:ultra-expanded 8))
+
+(define-g-enum "PangoGravity" pango-gravity
+    (:export t :type-initializer "pango_gravity_get_type")
+  (:south 0)
+  (:east 1)
+  (:north 2)
+  (:west 3)
+  (:auto 4))
+
+(define-g-boxed-cstruct pango-font-description "PangoFontDescription"
+  (family-name :string :initform "")
+  (style pango-style :initform :normal)
+  (variant pango-variant :initform :normal)
+  (weight pango-weight :initform :normal)
+  (stretch pango-stretch :initform :normal)
+  (gravity pango-gravity :initform :auto))
+
+(export (boxed-related-symbols 'pango-font-description))
+
 (define-g-boxed-cstruct pango-matrix "PangoMatrix"
   (xx :double :initform 0.0)
   (xy :double :initform 0.0)
