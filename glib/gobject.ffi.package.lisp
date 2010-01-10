@@ -18,6 +18,7 @@
            #:g-strv-get-type
            #:g-closure-get-type
            #:%g-type-interfaces
+           #:%g-type-interface-peek
            #:g-type-interface
            #:g-type-class
            #:g-type-instance

@@ -102,24 +102,69 @@
                                             :impl-call impl-call)))))
 
 (defvar *vtables* (make-hash-table :test 'equal))
+(defvar *vtable-names* (make-hash-table))
 
 (defstruct vtable-description type-name cstruct-name methods)
+
+(defmacro call-next-gmethod (method-name type-name parent-safe-p)
+  (let* ((vtable-desc (if (stringp type-name)
+                          (gethash type-name *vtables*)
+                          (gethash (gethash *vtable-names* type-name) *vtables*)))
+         (cstruct-name (vtable-description-cstruct-name vtable-desc))
+         (type-name (vtable-description-type-name vtable-desc))
+         (method (find method-name (vtable-description-methods vtable-desc)
+                       :key #'vtable-method-info-slot-name))
+         (cffi-args (mapcan #'reverse (vtable-method-info-args method)))
+         (item (second cffi-args))
+         )
+   `(let* ((iface-type (g-type-from-name ,type-name))
+           (parent-type (g-type-class-ref (g-type-parent (g-type-from-instance (pointer ,item)))))
+           (vtable
+            ;; FIXME: Without full introspection, we have no way to figure out if non-interface
+            ;; types implement the method too.
+            (cond
+              ((g-type-is-interface iface-type)
+               (%g-type-interface-peek parent-type iface-type))
+              (,(when parent-safe-p `(g-type-is-object iface-type))
+               parent-type))))
+      (if vtable
+          (foreign-funcall-pointer (foreign-slot-value vtable
+                                                       ',cstruct-name
+                                                       ',(vtable-method-info-slot-name method))
+                                   ()
+                                   ,@cffi-args
+                                   ,(vtable-method-info-return-type method))
+          (call-next-method)))))
 
 (defmacro define-vtable ((type-name name) &body items)
   (let ((cstruct-name (intern (format nil "~A-VTABLE" (symbol-name name))))
         (methods (vtable-methods name items)))
     `(progn
        (defcstruct ,cstruct-name ,@(mapcar #'vtable-item->cstruct-item items))
-       (setf (gethash ,type-name *vtables*)
-             (make-vtable-description :type-name ,type-name
-                                      :cstruct-name ',cstruct-name
-                                      :methods (list ,@(mapcar #'make-load-form methods))))
+       (eval-when (:compile-toplevel :load-toplevel)
+         (setf (gethash ,type-name *vtables*)
+               (make-vtable-description :type-name ,type-name
+                                        :cstruct-name ',cstruct-name
+                                        :methods (list ,@(mapcar #'make-load-form methods))))
+         (setf (gethash ',name *vtable-names*) ,type-name))
        ,@(iter (for method in methods)
                (for args = 
                     (if (vtable-method-info-impl-call method)
                         (first (vtable-method-info-impl-call method))
                         (mapcar #'first (vtable-method-info-args method))))
-               (collect `(defgeneric ,(vtable-method-info-name method) (,@args)))
+               ;; TODO: Add sensible impl-call handling
+               ;; We assume the first arg is "the" object to perform type dispatch on,
+               ;; due to the overwhelingly popular convention.
+               ;; Furthermore, we assume this object is of type GObject or descended,
+               ;; as that's necessary for meaningful base case that isn't just specialised
+               ;; on T.
+               (collect `(defgeneric ,(vtable-method-info-name method) (,@args)
+                           ,(let ((item (first args)))
+                              `(:method ((,item g-object) ,@(rest args))
+                                        ;; TODO: handle non-interface types
+                                        (call-next-gmethod ,(vtable-method-info-slot-name method)
+                                                           ,type-name
+                                                           nil)))))
                (collect `(glib-defcallback ,(vtable-method-info-callback-name method)
                              ,(vtable-method-info-return-type method)
                              (,@(vtable-method-info-args method))

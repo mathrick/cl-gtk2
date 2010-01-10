@@ -83,3 +83,8 @@ Example:
              collect (mem-aref g-types-ptr 'g-type-designator i))
         (g-free g-types-ptr)))))
 
+(defun g-type-is-interface (g-type)
+  (equal (g-type-fundamental g-type) "GInterface"))
+
+(defun g-type-is-object (g-type)
+  (equal (g-type-fundamental g-type) "GObject"))

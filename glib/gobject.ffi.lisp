@@ -82,6 +82,10 @@ Example:
   (type g-type-designator)
   (n-interface-prerequisites (:pointer :uint)))
 
+(defcfun (%g-type-interface-peek "g_type_interface_peek") :pointer
+  (instance :pointer)
+  (iface-type g-type))
+
 (defcfun g-strv-get-type g-type-designator
   "Returns the type designator (see @class{g-type-designator}) for GStrv type. As a side effect, ensures that the type is registered.")
 

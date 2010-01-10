@@ -12,6 +12,8 @@
            #:g-type-is-a
            #:g-type-interfaces
            #:g-type-interface-prerequisites
+           #:g-type-is-interface
+           #:g-type-is-object
            #:g-strv-get-type
            #:g-closure-get-type
            #:g-class-property-definition
