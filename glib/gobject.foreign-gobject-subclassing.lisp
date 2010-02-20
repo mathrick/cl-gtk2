@@ -128,12 +128,14 @@
               (,(when parent-safe-p `(g-type-is-object iface-type))
                parent-type))))
       (if vtable
-          (foreign-funcall-pointer (foreign-slot-value vtable
-                                                       ',cstruct-name
-                                                       ',(vtable-method-info-slot-name method))
-                                   ()
-                                   ,@cffi-args
-                                   ,(vtable-method-info-return-type method))
+          (let ((ptr (foreign-slot-value vtable
+                                         ',cstruct-name
+                                         ',(vtable-method-info-slot-name method))))
+            (log-for :subclass "Calling foreign pointer ~A" ptr)
+            (foreign-funcall-pointer ptr
+                                     ()
+                                     ,@cffi-args
+                                     ,(vtable-method-info-return-type method)))
           (call-next-method)))))
 
 (defmacro define-vtable ((type-name name) &body items)
