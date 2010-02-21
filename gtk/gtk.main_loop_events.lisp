@@ -21,52 +21,56 @@
 
 (defcfun (%gtk-main "gtk_main") :void)
 
-#+thread-support
 (defun gtk-main ()
   (with-gdk-threads-lock (%gtk-main)))
 
+#+thread-support
+(progn
+  (defvar *main-thread* nil)
+  (defvar *main-thread-level* nil)
+  (defvar *main-thread-lock* (bt:make-lock "*main-thread* lock"))
+
+  (at-finalize ()
+    (when (and *main-thread* (bt:thread-alive-p *main-thread*))
+      (bt:destroy-thread *main-thread*)
+      (setf *main-thread* nil)))
+
+  (defun ensure-gtk-main ()
+    (bt:with-lock-held (*main-thread-lock*)
+      (when (and *main-thread* (not (bt:thread-alive-p *main-thread*)))
+        (setf *main-thread* nil))
+      (unless *main-thread*
+        (setf *main-thread* (bt:make-thread (lambda () (gtk-main)) :name "cl-gtk2 main thread")
+              *main-thread-level* 0))
+      (incf *main-thread-level*))
+    (values))
+
+  (defun join-gtk-main ()
+    (when *main-thread*
+      (bt:join-thread *main-thread*)))
+
+  (defun leave-gtk-main ()
+    (bt:with-lock-held (*main-thread-lock*)
+      (decf *main-thread-level*)
+      (when (zerop *main-thread-level*)
+        (gtk-main-quit)))))
+
 #-thread-support
-(defun gtk-main ()
-  (%gtk-main))
+(progn
+  (defun ensure-gtk-main ()
+    (gtk-main)
+    (values))
 
-#+thread-support
-(defvar *main-thread* nil)
-
-#+thread-support
-(at-finalize ()
-  (when (and *main-thread* (bt:thread-alive-p *main-thread*))
-    (bt:destroy-thread *main-thread*)
-    (setf *main-thread* nil)))
-
-#+thread-support
-(defun ensure-gtk-main ()
-  (when (and *main-thread* (not (bt:thread-alive-p *main-thread*)))
-    (setf *main-thread* nil))
-  (unless *main-thread*
-    (setf *main-thread* (bt:make-thread (lambda () (gtk-main)) :name "cl-gtk2 main thread"))))
-
-#+thread-support
-(defun join-main-thread ()
-  (when *main-thread*
-    (bt:join-thread *main-thread*)))
-
-#+thread-support
-(export 'join-main-thread)
-
-#-thread-support
-(defun ensure-gtk-main ()
-  (gtk-main))
+  (defun leave-gtk-main ()
+    (gtk-main-quit))
+  
+  (defun join-gtk-main ()))
 
 (export 'ensure-gtk-main)
 
-#+thread-support
-(defun leave-gtk-main ()) ;noop on multithreading
-
-#-thread-support
-(defun leave-gtk-main ()
-  (gtk-main-quit))
-
 (export 'leave-gtk-main)
+
+(export 'join-gtk-main)
 
 (defcfun gtk-main-level :uint)
 

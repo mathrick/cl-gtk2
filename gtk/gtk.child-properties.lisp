@@ -110,15 +110,15 @@
   (intern (format nil "~A-CHILD-~A" (symbol-name (registered-object-type-by-name type-name)) (string-upcase property-name)) (find-package package-name)))
 
 (defun generate-child-properties (&optional (type-root "GtkContainer") (package-name "GTK"))
-  (setf type-root (ensure-g-type type-root))
+  (setf type-root (gtype type-root))
   (append (loop
              for property in (container-class-child-properties type-root)
              collect
                `(define-child-property
-                    ,(g-type-name type-root)
-                    ,(child-property-name (g-type-name type-root) (g-class-property-definition-name property) package-name)
+                    ,(gtype-name type-root)
+                    ,(child-property-name (gtype-name type-root) (g-class-property-definition-name property) package-name)
                   ,(g-class-property-definition-name property)
-                  ,(g-type-name (g-class-property-definition-type property))
+                  ,(gtype-name (g-class-property-definition-type property))
                   ,(g-class-property-definition-readable property)
                   ,(g-class-property-definition-writable property)
                   t))

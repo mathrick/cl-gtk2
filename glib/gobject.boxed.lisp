@@ -21,8 +21,8 @@
 (defvar *g-type-name->g-boxed-foreign-info* (make-hash-table :test 'equal))
 
 (defun get-g-boxed-foreign-info-for-gtype (g-type-designator)
-  (or (gethash (g-type-string g-type-designator) *g-type-name->g-boxed-foreign-info*)
-      (error "Unknown GBoxed type '~A'" (g-type-string g-type-designator))))
+  (or (gethash (gtype-name (gtype g-type-designator)) *g-type-name->g-boxed-foreign-info*)
+      (error "Unknown GBoxed type '~A'" (gtype-name (gtype g-type-designator)))))
 
 (defgeneric make-foreign-type (info &key return-p))
 
@@ -233,21 +233,48 @@
   (make-instance 'boxed-opaque-foreign-type :info info :return-p return-p))
 
 (defmethod translate-to-foreign (proxy (type boxed-opaque-foreign-type))
-  (prog1 (g-boxed-opaque-pointer proxy)
-    (when (g-boxed-foreign-return-p type)
-      (tg:cancel-finalization proxy)
-      (setf (g-boxed-opaque-pointer proxy) nil))))
+  (if (null proxy)
+      (null-pointer)
+      (prog1 (g-boxed-opaque-pointer proxy)
+        (when (g-boxed-foreign-return-p type)
+          (tg:cancel-finalization proxy)
+          (setf (g-boxed-opaque-pointer proxy) nil)))))
 
 (defmethod free-translated-object (native (type boxed-opaque-foreign-type) param)
   (declare (ignore native type param)))
 
+(defvar *gboxed-gc-hooks-lock* (make-recursive-lock "gboxed-gc-hooks-lock"))
+(defvar *gboxed-gc-hooks* nil);;pointers to objects to be freed
+
+(defun activate-gboxed-gc-hooks ()
+  (with-recursive-lock-held (*gboxed-gc-hooks-lock*)
+    (when *gboxed-gc-hooks*
+      (log-for :gc "activating gc hooks for boxeds: ~A~%" *gboxed-gc-hooks*)
+      (loop
+         for (pointer type) in *gboxed-gc-hooks*
+         do (boxed-free-fn type pointer))
+      (setf *gboxed-gc-hooks* nil))))
+
+(defcallback gboxed-idle-gc-hook :boolean ((data :pointer))
+  (declare (ignore data))
+  (activate-gboxed-gc-hooks)
+  nil)
+
+(defun register-gboxed-for-gc (type pointer)
+  (with-recursive-lock-held (*gboxed-gc-hooks-lock*)
+    (let ((locks-were-present (not (null *gboxed-gc-hooks*))))
+      (push (list pointer type) *gboxed-gc-hooks*)
+      (unless locks-were-present
+        (log-for :gc "adding gboxed idle-gc-hook to main loop~%")
+        (g-idle-add (callback gboxed-idle-gc-hook) (null-pointer))))))
+
 (defun make-boxed-free-finalizer (type pointer)
-  (lambda () (boxed-free-fn type pointer)))
+  (lambda () (register-gboxed-for-gc type pointer)))
 
 (defmethod translate-from-foreign (native (foreign-type boxed-opaque-foreign-type))
   (let* ((type (g-boxed-foreign-info foreign-type))
          (proxy (make-instance (g-boxed-info-name type) :pointer native)))
-    (tg:finalize proxy (make-boxed-free-finalizer type native))))
+    proxy))
 
 (defmethod cleanup-translated-object-for-callback ((type boxed-opaque-foreign-type) proxy native)
   (declare (ignore native))
@@ -528,14 +555,14 @@
 
 (defgeneric boxed-set-g-value (gvalue-ptr info proxy))
 
-(defmethod parse-g-value-for-type (gvalue-ptr (type-numeric (eql +g-type-boxed+)) parse-kind)
+(defmethod parse-g-value-for-type (gvalue-ptr (type-numeric (eql (gtype +g-type-boxed+))) parse-kind)
   (declare (ignore parse-kind))
   (if (g-type= (g-value-type gvalue-ptr) (g-strv-get-type))
       (convert-from-foreign (g-value-get-boxed gvalue-ptr) '(glib:gstrv :free-from-foreign nil))
       (let ((boxed-type (get-g-boxed-foreign-info-for-gtype (g-value-type gvalue-ptr))))
         (boxed-parse-g-value gvalue-ptr boxed-type))))
 
-(defmethod set-gvalue-for-type (gvalue-ptr (type-numeric (eql +g-type-boxed+)) value)
+(defmethod set-gvalue-for-type (gvalue-ptr (type-numeric (eql (gtype +g-type-boxed+))) value)
   (if (g-type= (g-value-type gvalue-ptr) (g-strv-get-type))
       (g-value-set-boxed gvalue-ptr (convert-to-foreign value '(glib:gstrv :free-from-foreign nil)))
       (let ((boxed-type (get-g-boxed-foreign-info-for-gtype (g-value-type gvalue-ptr))))

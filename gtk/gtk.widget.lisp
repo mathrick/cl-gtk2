@@ -2,6 +2,17 @@
 
 ; TODO: GtkWidget
 
+(define-g-boxed-cstruct selection-data "GtkSelectionData"
+  (selection gdk-atom-as-string :initform nil)
+  (target gdk-atom-as-string :initform nil)
+  (type gdk-atom-as-string :initform nil)
+  (format :int :initform 0)
+  (data :pointer :initform (null-pointer))
+  (length :int :initform 0)
+  (display (g-object display) :initform nil))
+
+(export (boxed-related-symbols 'selection-data))
+
 (defun widget-flags (widget)
   (convert-from-foreign (gtk-object-flags-as-integer widget) 'widget-flags))
 
@@ -489,7 +500,7 @@
   (n-properties (:pointer :int)))
 
 (defun widget-get-style-properties (type)
-  (setf type (ensure-g-type type))
+  (setf type (gtype type))
   (let ((class (g-type-class-ref type)))
     (unwind-protect
          (with-foreign-object (np :int)
@@ -520,7 +531,7 @@
 
 (defun widget-style-property-value (widget property-name &optional property-type)
   (unless property-type (setf property-type (widget-style-property-type widget property-name)))
-  (setf property-type (ensure-g-type property-type))
+  (setf property-type (gtype property-type))
   (with-foreign-object (gvalue 'g-value)
     (g-value-zero gvalue)
     (g-value-init gvalue property-type)

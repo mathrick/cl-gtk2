@@ -1,71 +1,243 @@
 (defpackage :gtk-demo
   (:use :cl :gtk :gdk :gobject :iter)
-  (:export #:demo-all
-           #:test
-           #:test-entry
-           #:table-packing
-           #:test-pixbuf
-           #:test-image
-           #:test-progress-bar
-           #:test-statusbar
-           #:test-scale-button
-           #:test-text-view
-           #:demo-code-editor
-           #:test-treeview-list
-           #:test-combo-box
-           #:test-ui-manager
-           #:test-color-button
-           #:test-color-selection
-           #:test-file-chooser
-           #:test-font-chooser
-           #:test-notebook
-           #:test-calendar
-           #:test-box-child-property
-           #:test-builder
-           #:demo-text-editor
-           #:demo-class-browser
-           #:demo-treeview-tree
-           #:test-custom-window
-           #:test-assistant
-           #:test-entry-completion
-           #:test-ui-markup
-           #:test-list-store
-           #:test-tree-store
-           #:test-gdk))
+  (:export #:demo))
 
 (in-package :gtk-demo)
 
 (defparameter *src-location* (asdf:component-pathname (asdf:find-system :cl-gtk2-gtk)))
 
+(defclass link-text-tag (text-tag)
+  ()
+  (:metaclass gobject-class))
+
+(defun make-link-fn-tag (buffer fn)
+  (let ((tag (make-instance 'link-text-tag :foreground "blue" :underline :single)))
+    (text-tag-table-add (text-buffer-tag-table buffer) tag)
+    (connect-signal tag "event"
+                    (lambda (tag object event it)
+                      (declare (ignore tag object it))
+                      (when (and (eq (event-type event) :button-release)
+                                 (eq (event-button-button event) 1))
+                        (when fn
+                          (funcall fn)))))
+    tag))
+
+(defun get-page (name)
+  (or (get name 'demo-page)
+      (get 'page-404 'demo-page)))
+
+(defun (setf get-page) (page name)
+  (setf (get name 'demo-page) page))
+
+(defmacro def-demo-page ((name &key (index 'index)) &body body)
+  `(setf (get-page ',name)
+         '(,@(when index (list `(:p (:link "To main" ,index))))
+           ,@body)))
+
+(def-demo-page (page-404)
+  (:p "Non-existent page"))
+
+(def-demo-page (index :index nil)
+  (:p (:b "cl-gtk2 demonstration"))
+  (:p "")
+  (:p "This demo application is a demonstration of what cl-gtk2 can do. You can click on any of blue underlined links to invoke the demonstration.")
+  (:p "")
+  (:p "You may try these demos:")
+  (:ol (:fn "Demonstrates usage of tree store" test-tree-store)
+       (:fn "Simple test of packing widgets into GtkTable"
+            table-packing)
+       (:fn "Test of GtkStatusbar" test-statusbar)
+       (:fn "Not working example of GtkEntryCompletion"
+            test-entry-completion)
+       (:fn "Simple test of non-GObject subclass of GtkWindow"
+            test-custom-window)
+       (:fn "Testing progress-bar" test-progress-bar)
+       (:fn "Simple test of GtkAssistant wizard" test-assistant)
+       (:fn "Using GtkImage with stock icon" test-image)
+       (:fn "Test of GtkCalendar" test-calendar)
+       (:fn "Test of GtkBuilder" test-builder)
+       (:fn "Test of GtkColorButton" test-color-button)
+       (:fn "Test of UI Markup" test-ui-markup)
+       (:fn "Test of scale button with icons" test-scale-button)
+       (:fn "Testing GtkComboBox" test-combo-box)
+       (:fn "Advanced demo: show s-expression tree structure"
+            demo-treeview-tree)
+       (:fn "Test of child-property usage" test-box-child-property)
+       (:fn "Demonstrates usage of list store" test-list-store)
+       (:fn "Test various gdk primitives" test-gdk)
+       (:fn "Test GtkNotebook" test-notebook)
+       (:fn "More advanced example: text editor with ability to evaluate lisp expressions"
+            demo-text-editor)
+       (:fn "(not completed)" test-pixbuf)
+       (:fn "Testing GtkTextEntry" test-entry)
+       (:fn "Test of treeview with CL-GTK2-GTK:ARRAY-LIST-STORE"
+            test-treeview-list)
+       (:fn "Test of GtkFileChooser" test-file-chooser)
+       (:fn "Test of GtkColorSelection" test-color-selection)
+       (:fn "Test of GtkTextView" test-text-view)
+       (:fn "A simple test of 'on-expose' event" test)
+       (:fn "Show slots of a given class" demo-class-browser)
+       (:fn "Testing GtkUIManager" test-ui-manager)
+       (:fn "GtkFontChooser" test-font-chooser)))
+
+(defun clear-text-tag-table (table)
+  (let (tags)
+    (text-tag-table-foreach table
+                            (lambda (tag)
+                              (push tag tags)))
+    (iter (for tag in tags)
+          (text-tag-table-remove table tag))))
+
+(defun fill-demo-text-buffer (buffer text-view &optional (page 'index))
+  (declare (ignorable text-view))
+  (clear-text-tag-table (text-buffer-tag-table buffer))
+  (setf (text-buffer-text buffer) "")
+  (text-tag-table-add (text-buffer-tag-table buffer) (make-instance 'text-tag :name "bold" :weight 700))
+  (labels ((insert-text (text)
+             (text-buffer-insert buffer text))
+           (insert-link (text fn)
+             (let ((offset (text-iter-offset (text-buffer-get-end-iter buffer))))
+               (text-buffer-insert buffer text)
+               (text-buffer-apply-tag buffer (make-link-fn-tag buffer fn)
+                                      (text-buffer-get-iter-at-offset buffer offset)
+                                      (text-buffer-get-end-iter buffer))))
+           (insert-newline ()
+             (text-buffer-insert buffer (format nil "~%")))
+           (process-paragraph (node)
+             (map nil #'process (rest node))
+             (insert-newline))
+           (process-link (node)
+             (insert-link (second node) (lambda () (fill-demo-text-buffer buffer text-view (third node)))))
+           (process-fn (node)
+             (insert-link (second node) (third node)))
+           (process-ul (node)
+             (iter (for n in (rest node))
+                   (for i from 1)
+                   (insert-text "* ")
+                   (process n)
+                   (insert-newline)))
+           (process-ol (node)
+             (iter (for n in (rest node))
+                   (for i from 1)
+                   (insert-text (format nil "~A. " i))
+                   (process n)
+                   (insert-newline)))
+           (process-bold (node)
+             (let ((offset (text-iter-offset (text-buffer-get-end-iter buffer))))
+               (map nil #'process (rest node))
+               (text-buffer-apply-tag buffer "bold" (text-buffer-get-iter-at-offset buffer offset) (text-buffer-get-end-iter buffer))))
+           (process (node)
+             (cond
+               ((stringp node) (insert-text node))
+               ((and (listp node) (eq (car node) :p)) (process-paragraph node))
+               ((and (listp node) (eq (car node) :link)) (process-link node))
+               ((and (listp node) (eq (car node) :fn)) (process-fn node))
+               ((and (listp node) (eq (car node) :ul)) (process-ul node))
+               ((and (listp node) (eq (car node) :ol)) (process-ol node))
+               ((and (listp node) (eq (car node) :b)) (process-bold node))
+               ((listp node) (map nil #'process node))
+               (t (error "Do not know how to proceed")))))
+    (process (get-page page))))
+
+(defun make-demo-text-buffer (text-view)
+  (let ((buffer (make-instance 'text-buffer)))
+    (fill-demo-text-buffer buffer text-view)
+    buffer))
+
+(defvar *active-tag* nil)
+
+(defun tv-motion-notify (tv event)
+  (multiple-value-bind (x y)
+      (text-view-window-to-buffer-coords tv :text
+                                         (round (event-motion-x event)) (round (event-motion-y event)))
+    (let ((it (text-view-get-iter-at-location tv x y)))
+      (if it
+          (let ((tags (text-iter-tags it)))
+            (if tags
+                (loop
+                   for tag in tags
+                   when (typep tag 'link-text-tag)
+                   do (progn
+                        (when *active-tag*
+                          (setf (text-tag-foreground *active-tag*) "blue"
+                                *active-tag* nil))
+                        (setf (gdk-window-cursor (text-view-get-window tv :text))
+                              (cursor-new-for-display (drawable-display (text-view-get-window tv :text))
+                                                      :hand2)
+                              *active-tag* tag
+                              (text-tag-foreground *active-tag*) "red")))
+                (progn
+                  (setf (gdk-window-cursor (text-view-get-window tv :text)) nil)
+                  (when *active-tag*
+                    (setf (text-tag-foreground *active-tag*) "blue"
+                          *active-tag* nil)))))
+          (progn
+            (setf (gdk-window-cursor (text-view-get-window tv :text)) nil)
+            (when *active-tag*
+              (setf (text-tag-foreground *active-tag*) "blue"
+                    *active-tag* nil)))))))
+
+(defun make-demo-text-view ()
+  (let ((tv (make-instance 'text-view :editable nil :cursor-visible nil :wrap-mode :word :pixels-below-lines 1 :left-margin 5 :right-margin 5)))
+    (setf (text-view-buffer tv)
+          (make-demo-text-buffer tv))
+    (connect-signal tv "motion-notify-event" #'tv-motion-notify)
+    tv))
+
+(defun demo ()
+  (within-main-loop
+    (let-ui
+        (gtk-window
+         :var w
+         :title "Gtk+ demo for Lisp"
+         :window-position :center
+         :default-width 500
+         :default-height 500
+         (scrolled-window
+          :hscrollbar-policy :automatic
+          :vscrollbar-policy :automatic
+          (:expr (make-demo-text-view))))
+      (connect-signal w "destroy"
+                      (lambda (w)
+                        (declare (ignore w))
+                        (leave-gtk-main)))
+      (widget-show w))))
+
 (defun test ()
   "A simple test of 'on-expose' event"
   (within-main-loop
-    (let ((window (make-instance 'gtk-window :type :toplevel :app-paintable t))
+    (let ((window (make-instance 'gtk-window :type :toplevel))
+          (area (make-instance 'drawing-area))
           x y)
-      (g-signal-connect window "destroy" (lambda (widget)
-                                           (declare (ignore widget))
-                                           (leave-gtk-main)))
-      (g-signal-connect window "motion-notify-event" (lambda (widget event)
-                                                       (declare (ignore widget))
-                                                       (setf x (event-motion-x event)
-                                                             y (event-motion-y event))
-                                                       (widget-queue-draw window)))
-      (g-signal-connect window "expose-event"
-                        (lambda (widget event)
-                          (declare (ignore widget event))
-                          (let* ((gdk-window (widget-window window))
-                                 (gc (graphics-context-new gdk-window))
-                                 (layout (widget-create-pango-layout window (format nil "X: ~F~%Y: ~F" x y))))
-                            (draw-layout gdk-window gc 0 0 layout)
-                            (setf (graphics-context-rgb-fg-color gc) (make-color :red 65535 :green 0 :blue 0))
-                            (multiple-value-bind (x y) (drawable-get-size gdk-window)
-                              (draw-line gdk-window gc 0 0 x y)))))
-      (g-signal-connect window "configure-event"
-                        (lambda (widget event)
-                          (declare (ignore widget event))
-                          (widget-queue-draw window)))
-      (widget-show window)
-      (push :pointer-motion-mask (gdk-window-events (widget-window window))))))
+      (container-add window area)
+      (connect-signal window "destroy" (lambda (widget)
+                                         (declare (ignore widget))
+                                         (leave-gtk-main)))
+      (connect-signal area "motion-notify-event"
+                      (lambda (widget event)
+                        (declare (ignore widget))
+                        (setf x (event-motion-x event)
+                              y (event-motion-y event))
+                        (widget-queue-draw window)))
+      (connect-signal area "expose-event"
+                      (lambda (widget event)
+                        (declare (ignore widget event))
+                        (let* ((gdk-window (widget-window area))
+                               (gc (graphics-context-new gdk-window))
+                               (layout (widget-create-pango-layout area (format nil "X: ~F~%Y: ~F" x y))))
+                          (draw-layout gdk-window gc 0 0 layout)
+                          (setf (graphics-context-rgb-fg-color gc) (make-color :red 65535 :green 0 :blue 0))
+                          (multiple-value-bind (x y) (drawable-get-size gdk-window)
+                            (draw-line gdk-window gc 0 0 x y)))))
+      (connect-signal area "realize"
+                      (lambda (widget)
+                        (declare (ignore widget))
+                        (pushnew :pointer-motion-mask (gdk-window-events (widget-window area)))))
+      (connect-signal area "configure-event"
+                      (lambda (widget event)
+                        (declare (ignore widget event))
+                        (widget-queue-draw area)))
+      (widget-show window))))
   
 (defun test-entry ()
   "Testing GtkTextEntry"
@@ -87,26 +259,26 @@
         (box-pack-start box w)
         (container-add w text-view))
       (container-add window box)
-      (g-signal-connect window "destroy" (lambda (widget) (declare (ignore widget)) (leave-gtk-main)))
-      (g-signal-connect window "delete-event" (lambda (widget event)
-                                                (declare (ignore widget event))
-                                                (let ((dlg (make-instance 'message-dialog
-                                                                          :text "Are you sure?"
-                                                                          :buttons :yes-no)))
-                                                  (let ((response (dialog-run dlg)))
-                                                    (object-destroy dlg)
-                                                    (not (eq :yes response))))))
-      (g-signal-connect button "clicked" (lambda (button)
-                                           (declare (ignore button))
-                                           (setf (text-buffer-text text-buffer)
-                                                 (format nil "~A~%~A" (text-buffer-text text-buffer) (entry-text entry))
-                                                 (entry-text entry) "")))
-      (g-signal-connect button-select "clicked" (lambda (button)
-                                                  (declare (ignore button))
-                                                  (editable-select-region entry 5 10)))
-      (g-signal-connect button-insert "clicked" (lambda (button)
-                                                  (declare (ignore button))
-                                                  (editable-insert-text entry "hello" 2)))
+      (connect-signal window "destroy" (lambda (widget) (declare (ignore widget)) (leave-gtk-main)))
+      (connect-signal window "delete-event" (lambda (widget event)
+                                              (declare (ignore widget event))
+                                              (let ((dlg (make-instance 'message-dialog
+                                                                        :text "Are you sure?"
+                                                                        :buttons :yes-no)))
+                                                (let ((response (dialog-run dlg)))
+                                                  (object-destroy dlg)
+                                                  (not (eq :yes response))))))
+      (connect-signal button "clicked" (lambda (button)
+                                         (declare (ignore button))
+                                         (setf (text-buffer-text text-buffer)
+                                               (format nil "~A~%~A" (text-buffer-text text-buffer) (entry-text entry))
+                                               (entry-text entry) "")))
+      (connect-signal button-select "clicked" (lambda (button)
+                                                (declare (ignore button))
+                                                (editable-select-region entry 5 10)))
+      (connect-signal button-insert "clicked" (lambda (button)
+                                                (declare (ignore button))
+                                                (editable-insert-text entry "hello" 2)))
       (widget-show window))))
 
 (defun table-packing ()
@@ -121,25 +293,25 @@
       (table-attach table button-1 0 1 0 1)
       (table-attach table button-2 1 2 0 1)
       (table-attach table button-q 0 2 1 2)
-      (g-signal-connect window "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
-      (g-signal-connect button-q "clicked" (lambda (b) (declare (ignore b)) (object-destroy window)))
+      (connect-signal window "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
+      (connect-signal button-q "clicked" (lambda (b) (declare (ignore b)) (object-destroy window)))
       (widget-show window))))
 
 (defun test-pixbuf ()
   "(not completed)"
   (within-main-loop
     (let* ((window (make-instance 'gtk-window :title "Test pixbuf" :width-request 600 :height-request 240))
-          (vbox (make-instance 'v-box))
-          (eventbox (make-instance 'event-box))
-          (vbox-1 (make-instance 'v-box)))
-     (container-add window vbox)
-     (box-pack-start vbox (make-instance 'label :text "Placing bg image" :font "Times New Roman Italic 10" :color "#00f" :height-request 40))
-     (g-signal-connect window "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
-     (box-pack-start vbox eventbox)
-     (container-add eventbox vbox-1)
-     (box-pack-start vbox-1 (make-instance 'label :text "This is the eventbox"))
-     (box-pack-start vbox-1 (make-instance 'label :text "The green ball is the bg"))
-     (widget-show window))))
+           (vbox (make-instance 'v-box))
+           (eventbox (make-instance 'event-box))
+           (vbox-1 (make-instance 'v-box)))
+      (container-add window vbox)
+      (box-pack-start vbox (make-instance 'label :text "Placing bg image" :font "Times New Roman Italic 10" :color "#00f" :height-request 40))
+      (connect-signal window "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
+      (box-pack-start vbox eventbox)
+      (container-add eventbox vbox-1)
+      (box-pack-start vbox-1 (make-instance 'label :text "This is the eventbox"))
+      (box-pack-start vbox-1 (make-instance 'label :text "The green ball is the bg"))
+      (widget-show window))))
 
 (defun test-image ()
   "Using GtkImage with stock icon"
@@ -147,7 +319,7 @@
     (let* ((window (make-instance 'gtk-window :title "Test images"))
            (image (make-instance 'image :icon-name "applications-development" :icon-size 6)))
       (container-add window image)
-      (g-signal-connect window "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
+      (connect-signal window "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
       (widget-show window))))
 
 (defun test-progress-bar ()
@@ -159,17 +331,17 @@
            (button-pulse (make-instance 'button :label "Pulse"))
            (button-set (make-instance 'button :label "Set"))
            (entry (make-instance 'entry)))
-      (g-signal-connect window "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
+      (connect-signal window "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
       (container-add window v-box)
       (box-pack-start v-box p-bar)
       (box-pack-start v-box button-pulse)
       (box-pack-start v-box button-set)
       (box-pack-start v-box entry)
-      (g-signal-connect button-pulse "clicked" (lambda (w) (declare (ignore w)) (progress-bar-pulse p-bar)))
-      (g-signal-connect button-set "clicked" (lambda (w)
-                                               (declare (ignore w))
-                                               (setf (progress-bar-fraction p-bar)
-                                                     (coerce (read-from-string (entry-text entry)) 'real))))
+      (connect-signal button-pulse "clicked" (lambda (w) (declare (ignore w)) (progress-bar-pulse p-bar)))
+      (connect-signal button-set "clicked" (lambda (w)
+                                             (declare (ignore w))
+                                             (setf (progress-bar-fraction p-bar)
+                                                   (coerce (read-from-string (entry-text entry)) 'real))))
       (widget-show window))))
 
 (defun test-statusbar ()
@@ -185,23 +357,23 @@
            (entry (make-instance 'entry))
            (icon (make-instance 'status-icon :icon-name "applications-development")))
       (set-status-icon-tooltip icon "An icon from lisp program")
-      (g-signal-connect window "destroy" (lambda (w)
-                                           (declare (ignore w))
-                                           #+ (or) (setf (status-icon-visible icon) nil)
-                                           (leave-gtk-main)))
-      (g-signal-connect button-push "clicked" (lambda (b)
-                                                (declare (ignore b))
-                                                (statusbar-push statusbar "lisp-prog" (entry-text entry))))
-      (g-signal-connect button-pop "clicked" (lambda (b)
-                                               (declare (ignore b))
-                                               (statusbar-pop statusbar "lisp-prog")))
-      (g-signal-connect icon "activate" (lambda (i)
-                                          (declare (ignore i))
-                                          (let ((message-dialog (make-instance 'message-dialog
-                                                                               :buttons :ok
-                                                                               :text "You clicked on icon!")))
-                                            (dialog-run message-dialog)
-                                            (object-destroy message-dialog))))
+      (connect-signal window "destroy" (lambda (w)
+                                         (declare (ignore w))
+                                         #+ (or) (setf (status-icon-visible icon) nil)
+                                         (leave-gtk-main)))
+      (connect-signal button-push "clicked" (lambda (b)
+                                              (declare (ignore b))
+                                              (statusbar-push statusbar "lisp-prog" (entry-text entry))))
+      (connect-signal button-pop "clicked" (lambda (b)
+                                             (declare (ignore b))
+                                             (statusbar-pop statusbar "lisp-prog")))
+      (connect-signal icon "activate" (lambda (i)
+                                        (declare (ignore i))
+                                        (let ((message-dialog (make-instance 'message-dialog
+                                                                             :buttons :ok
+                                                                             :text "You clicked on icon!")))
+                                          (dialog-run message-dialog)
+                                          (object-destroy message-dialog))))
       (container-add window v-box)
       (box-pack-start v-box h-box :expand nil)
       (box-pack-start h-box entry)
@@ -217,7 +389,7 @@
   (within-main-loop
     (let* ((window (make-instance 'gtk-window :type :toplevel :title "Testing scale button"))
            (button (make-instance 'scale-button :icons (list "media-seek-backward" "media-seek-forward" "media-playback-stop" "media-playback-start") :adjustment (make-instance 'adjustment :lower -40 :upper 50 :value 20))))
-      (g-signal-connect window "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
+      (connect-signal window "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
       (container-add window button)
       (widget-show window))))
 
@@ -232,45 +404,45 @@
            (v (make-instance 'text-view :buffer buffer :wrap-mode :word))
            (box (make-instance 'v-box))
            (scrolled (make-instance 'scrolled-window :hscrollbar-policy :automatic :vscrollbar-policy :automatic)))
-      (g-signal-connect window "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
-      (g-signal-connect button "clicked" (lambda (b)
+      (connect-signal window "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
+      (connect-signal button "clicked" (lambda (b)
+                                         (declare (ignore b))
+                                         (multiple-value-bind (i1 i2) (text-buffer-get-selection-bounds buffer)
+                                           (when (and i1 i2)
+                                             (let* ((i1 i1) (i2 i2)
+                                                    (dialog (make-instance 'message-dialog :buttons :ok)))
+                                               (setf (message-dialog-text dialog)
+                                                     (format nil "selection: from (~A,~A) to (~A,~A)"
+                                                             (text-iter-line i1) (text-iter-line-offset i1)
+                                                             (text-iter-line i2) (text-iter-line-offset i2)))
+                                               (dialog-run dialog)
+                                               (object-destroy dialog))))))
+      (connect-signal bold-btn "clicked" (Lambda (b)
                                            (declare (ignore b))
-                                           (multiple-value-bind (i1 i2) (text-buffer-get-selection-bounds buffer)
-                                             (when (and i1 i2)
-                                               (let* ((i1 i1) (i2 i2)
-                                                      (dialog (make-instance 'message-dialog :buttons :ok)))
-                                                 (setf (message-dialog-text dialog)
-                                                       (format nil "selection: from (~A,~A) to (~A,~A)"
-                                                               (text-iter-line i1) (text-iter-line-offset i1)
-                                                               (text-iter-line i2) (text-iter-line-offset i2)))
-                                                 (dialog-run dialog)
-                                                 (object-destroy dialog))))))
-      (g-signal-connect bold-btn "clicked" (Lambda (b)
-                                             (declare (ignore b))
-                                             (multiple-value-bind (start end) (text-buffer-get-selection-bounds buffer)
-                                               (when (and start end)
-                                                 (let* ((start start)
-                                                        (end end)
-                                                        (tag (text-tag-table-lookup (text-buffer-tag-table buffer) "bold")))
-                                                   (if (text-iter-has-tag start tag)
-                                                       (text-buffer-remove-tag buffer tag start end)
-                                                       (text-buffer-apply-tag buffer tag start end)))))))
-      (g-signal-connect button-insert "clicked" (lambda (b)
-                                                  (declare (ignore b))
-                                                  (let* ((iter (text-buffer-get-iter-at-mark buffer (text-buffer-get-mark buffer "insert")))
-                                                         (anchor (text-buffer-insert-child-anchor buffer iter))
-                                                         (button (make-instance 'button :label "A button!")))
-                                                    (widget-show button)
-                                                    (text-view-add-child-at-anchor v button anchor))))
+                                           (multiple-value-bind (start end) (text-buffer-get-selection-bounds buffer)
+                                             (when (and start end)
+                                               (let* ((start start)
+                                                      (end end)
+                                                      (tag (text-tag-table-lookup (text-buffer-tag-table buffer) "bold")))
+                                                 (if (text-iter-has-tag start tag)
+                                                     (text-buffer-remove-tag buffer tag start end)
+                                                     (text-buffer-apply-tag buffer tag start end)))))))
+      (connect-signal button-insert "clicked" (lambda (b)
+                                                (declare (ignore b))
+                                                (let* ((iter (text-buffer-get-iter-at-mark buffer (text-buffer-get-mark buffer "insert")))
+                                                       (anchor (text-buffer-insert-child-anchor buffer iter))
+                                                       (button (make-instance 'button :label "A button!")))
+                                                  (widget-show button)
+                                                  (text-view-add-child-at-anchor v button anchor))))
       (let ((tag (make-instance 'text-tag :name "bold" :weight 700)))
         (text-tag-table-add (text-buffer-tag-table buffer) tag)
-        (g-signal-connect tag "event"
-                          (lambda (tag object event iter)
-                            (declare (ignore tag object iter))
-                            (when (eq (event-type event) :button-release)
-                              (let ((dlg (make-instance 'message-dialog :text "You clicked on bold text." :buttons :ok)))
-                                (dialog-run dlg)
-                                (object-destroy dlg))))))
+        (connect-signal tag "event"
+                        (lambda (tag object event iter)
+                          (declare (ignore tag object iter))
+                          (when (eq (event-type event) :button-release)
+                            (let ((dlg (make-instance 'message-dialog :text "You clicked on bold text." :buttons :ok)))
+                              (dialog-run dlg)
+                              (object-destroy dlg))))))
       (container-add window box)
       (container-add scrolled v)
       (box-pack-start box button :expand nil)
@@ -286,14 +458,14 @@
            (scrolled (make-instance 'scrolled-window :hscrollbar-policy :automatic :vscrollbar-policy :automatic))
            (buffer (make-instance 'text-buffer))
            (view (make-instance 'text-view :buffer buffer)))
-      (g-signal-connect window "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
+      (connect-signal window "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
       (container-add window scrolled)
       (container-add scrolled view)
       (widget-show window)
-      (g-signal-connect buffer "insert-text" (lambda (buffer location text len)
-                                               (let* ((buffer buffer)
-                                                      (location location))
-                                                 (format t "~A~%" (list buffer location text len))))))))
+      (connect-signal buffer "insert-text" (lambda (buffer location text len)
+                                             (let* ((buffer buffer)
+                                                    (location location))
+                                               (format t "~A~%" (list buffer location text len))))))))
 
 (defstruct tvi title value)
 
@@ -319,16 +491,16 @@
       (store-add-item model (make-tvi :title "Saturday" :value 6))
       (store-add-item model (make-tvi :title "Sunday" :value 7))
       (setf (tree-view-model tv) model (tree-view-tooltip-column tv) 0)
-      (gobject:g-signal-connect window "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
-      (gobject:g-signal-connect button "clicked" (lambda (b)
-                                                   (declare (ignore b))
-                                                   (store-add-item model (make-tvi :title (entry-text title-entry)
-                                                                                   :value (or (parse-integer (entry-text value-entry) 
-                                                                                                             :junk-allowed t)
-                                                                                              0)))))
-      (g-signal-connect tv "row-activated" (lambda (tv path column)
-                                             (declare (ignore tv column))
-                                             (format t "You clicked on row ~A~%" (tree-path-indices path))))
+      (gobject:connect-signal window "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
+      (gobject:connect-signal button "clicked" (lambda (b)
+                                                 (declare (ignore b))
+                                                 (store-add-item model (make-tvi :title (entry-text title-entry)
+                                                                                 :value (or (parse-integer (entry-text value-entry) 
+                                                                                                           :junk-allowed t)
+                                                                                            0)))))
+      (connect-signal tv "row-activated" (lambda (tv path column)
+                                           (declare (ignore tv column))
+                                           (show-message (format nil "You clicked on row ~A" (tree-path-indices path)))))
       (container-add window v-box)
       (box-pack-start v-box h-box :expand nil)
       (box-pack-start h-box title-entry :expand nil)
@@ -372,16 +544,16 @@
       (store-add-item model (make-tvi :title "Friday" :value 5))
       (store-add-item model (make-tvi :title "Saturday" :value 6))
       (store-add-item model (make-tvi :title "Sunday" :value 7))
-      (gobject:g-signal-connect window "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
-      (gobject:g-signal-connect button "clicked" (lambda (b)
-                                                   (declare (ignore b))
-                                                   (store-add-item model (make-tvi :title (entry-text title-entry)
-                                                                                   :value (or (parse-integer (entry-text value-entry) 
-                                                                                                             :junk-allowed t)
-                                                                                              0)))))
-      (g-signal-connect combo-box "changed" (lambda (c)
-                                              (declare (ignore c))
-                                              (format t "You clicked on row ~A~%" (combo-box-active combo-box))))
+      (gobject:connect-signal window "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
+      (gobject:connect-signal button "clicked" (lambda (b)
+                                                 (declare (ignore b))
+                                                 (store-add-item model (make-tvi :title (entry-text title-entry)
+                                                                                 :value (or (parse-integer (entry-text value-entry) 
+                                                                                                           :junk-allowed t)
+                                                                                            0)))))
+      (connect-signal combo-box "changed" (lambda (c)
+                                            (declare (ignore c))
+                                            (show-message (format nil "You clicked on row ~A~%" (combo-box-active combo-box)))))
       (container-add window v-box)
       (box-pack-start v-box h-box :expand nil)
       (box-pack-start h-box title-entry :expand nil)
@@ -415,11 +587,11 @@
       <separator/>
   </toolbar>
 </ui>")
-      (gobject:g-signal-connect window "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
+      (gobject:connect-signal window "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
       (iter (with fn = (lambda (action) (when print-confirmation (format t "Action ~A with name ~A activated~%" action (action-name action)))))
             (with action-group = (make-instance 'action-group :name "Actions"))
             (finally (let ((a (make-instance 'toggle-action :name "print-confirm" :label "Print" :stock-id "gtk-print-report" :active t)))
-                       (g-signal-connect a "toggled" (lambda (action) (setf print-confirmation (toggle-action-active action))))
+                       (connect-signal a "toggled" (lambda (action) (setf print-confirmation (toggle-action-active action))))
                        (action-group-add-action action-group a))
                      (ui-manager-insert-action-group ui-manager action-group 0))
             (for (name stock-id) in '(("justify-left" "gtk-justify-left")
@@ -427,7 +599,7 @@
                                       ("justify-right" "gtk-justify-right")
                                       ("zoom-in" "gtk-zoom-in")))
             (for action = (make-instance 'action :name name :stock-id stock-id))
-            (g-signal-connect action "activate" fn)
+            (connect-signal action "activate" fn)
             (action-group-add-action action-group action))
       (let ((widget (ui-manager-widget ui-manager "/toolbar1")))
         (when widget
@@ -439,10 +611,10 @@
   (within-main-loop
     (let ((window (make-instance 'gtk-window :title "Color button" :type :toplevel :window-position :center :width-request 100 :height-request 100))
           (button (make-instance 'color-button :title "Color button")))
-      (g-signal-connect window "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
-      (g-signal-connect button "color-set" (lambda (b)
-                                             (declare (ignore b))
-                                             (format t "Chose color ~A~%" (color-button-color button))))
+      (connect-signal window "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
+      (connect-signal button "color-set" (lambda (b)
+                                           (declare (ignore b))
+                                           (show-message (format nil "Chose color ~A" (color-button-color button)))))
       (container-add window button)
       (widget-show window))))
 
@@ -451,8 +623,8 @@
   (within-main-loop
     (let ((window (make-instance 'gtk-window :title "Color selection" :type :toplevel :window-position :center))
           (selection (make-instance 'color-selection :has-opacity-control t)))
-      (g-signal-connect window "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
-      (g-signal-connect selection "color-changed" (lambda (s) (declare (ignore s)) (unless (color-selection-adjusting-p selection) (format t "color: ~A~%" (color-selection-current-color selection)))))
+      (connect-signal window "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
+      (connect-signal selection "color-changed" (lambda (s) (declare (ignore s)) (unless (color-selection-adjusting-p selection) (format t "color: ~A~%" (color-selection-current-color selection)))))
       (container-add window selection)
       (widget-show window))))
 
@@ -463,16 +635,16 @@
           (v-box (make-instance 'v-box))
           (button (make-instance 'file-chooser-button :action :open))
           (b (make-instance 'button :label "Choose for save" :stock-id "gtk-save")))
-      (g-signal-connect window "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
-      (g-signal-connect button "file-set" (lambda (b) (declare (ignore b)) (format t "File set: ~A~%" (file-chooser-filename button))))
-      (g-signal-connect b "clicked" (lambda (b)
-                                      (declare (ignore b))
-                                      (let ((d (make-instance 'file-chooser-dialog :action :save :title "Choose file to save")))
-                                        (dialog-add-button d "gtk-save" :accept)
-                                        (dialog-add-button d "gtk-cancel" :cancel)
-                                        (when (eq (dialog-run d) :accept)
-                                          (format t "saved to file ~A~%" (file-chooser-filename d)))
-                                        (object-destroy d))))
+      (connect-signal window "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
+      (connect-signal button "file-set" (lambda (b) (declare (ignore b)) (format t "File set: ~A~%" (file-chooser-filename button))))
+      (connect-signal b "clicked" (lambda (b)
+                                    (declare (ignore b))
+                                    (let ((d (make-instance 'file-chooser-dialog :action :save :title "Choose file to save")))
+                                      (dialog-add-button d "gtk-save" :accept)
+                                      (dialog-add-button d "gtk-cancel" :cancel)
+                                      (when (eq (dialog-run d) :accept)
+                                        (format t "saved to file ~A~%" (file-chooser-filename d)))
+                                      (object-destroy d))))
       (container-add window v-box)
       (box-pack-start v-box button)
       (box-pack-start v-box b)
@@ -484,8 +656,8 @@
     (let ((window (make-instance 'gtk-window :title "fonts" :type :toplevel :window-position :center :default-width 100 :default-height 100))
           (v-box (make-instance 'v-box))
           (button (make-instance 'font-button :title "Choose font" :font-name "Sans 10")))
-      (g-signal-connect window "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
-      (g-signal-connect button "font-set" (lambda (b) (declare (ignore b)) (format t "Chose font ~A~%" (font-button-font-name button))))
+      (connect-signal window "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
+      (connect-signal button "font-set" (lambda (b) (declare (ignore b)) (format t "Chose font ~A~%" (font-button-font-name button))))
       (container-add window v-box)
       (box-pack-start v-box button)
       (widget-show window))))
@@ -496,19 +668,19 @@
     (let ((window (make-instance 'gtk-window :title "Notebook" :type :toplevel :window-position :center :default-width 100 :default-height 100))
           (expander (make-instance 'expander :expanded t :label "notebook"))
           (notebook (make-instance 'notebook :enable-popup t)))
-      (g-signal-connect window "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
+      (connect-signal window "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
       (iter (for i from 0 to 5)
             (for page = (make-instance 'label :label (format nil "Label for page ~A" i)))
             (for tab-label = (make-instance 'label :label (format nil "Tab ~A" i)))
             (for tab-button = (make-instance 'button
                                              :image (make-instance 'image :stock "gtk-close" :icon-size 1)
                                              :relief :none))
-            (g-signal-connect tab-button "clicked"
-                              (let ((page page))
-                                (lambda (button)
-                                  (declare (ignore button))
-                                  (format t "Removing page ~A~%" page)
-                                  (notebook-remove-page notebook page))))
+            (connect-signal tab-button "clicked"
+                            (let ((page page))
+                              (lambda (button)
+                                (declare (ignore button))
+                                (format t "Removing page ~A~%" page)
+                                (notebook-remove-page notebook page))))
             (for tab-hbox = (make-instance 'h-box))
             (box-pack-start tab-hbox tab-label)
             (box-pack-start tab-hbox tab-button)
@@ -528,11 +700,11 @@
   (within-main-loop
     (let ((window (make-instance 'gtk-window :title "Calendar" :type :toplevel :window-position :center :default-width 100 :default-height 100))
           (calendar (make-instance 'calendar :detail-function #'calendar-detail)))
-      (g-signal-connect window "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
-      (g-signal-connect calendar "day-selected" (lambda (c) (declare (ignore c)) (format t "selected: year ~A month ~A day ~A~%"
-                                                                                         (calendar-year calendar)
-                                                                                         (calendar-month calendar)
-                                                                                         (calendar-day calendar))))
+      (connect-signal window "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
+      (connect-signal calendar "day-selected" (lambda (c) (declare (ignore c)) (format t "selected: year ~A month ~A day ~A~%"
+                                                                                       (calendar-year calendar)
+                                                                                       (calendar-month calendar)
+                                                                                       (calendar-day calendar))))
       (container-add window calendar)
       (widget-show window))))
 
@@ -542,8 +714,8 @@
     (let ((window (make-instance 'gtk-window :title "Text box child property" :type :toplevel :window-position :center :width-request 200 :height-request 200))
           (box (make-instance 'h-box))
           (button (make-instance 'toggle-button :active t :label "Expand")))
-      (g-signal-connect window "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
-      (g-signal-connect button "toggled" (lambda (b) (declare (ignore b)) (setf (box-child-expand box button) (toggle-button-active button))))
+      (connect-signal window "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
+      (connect-signal button "toggled" (lambda (b) (declare (ignore b)) (setf (box-child-expand box button) (toggle-button-active button))))
       (container-add window box)
       (box-pack-start box button)
       (widget-show window))))
@@ -561,10 +733,10 @@
                                                                                      (setf (text-buffer-text (text-view-buffer text-view))
                                                                                            (format nil "Clicked ~A times~%" (incf c)))
                                                                                      (statusbar-pop (builder-get-object builder "statusbar1")
-                                                                                                     "times")
+                                                                                                    "times")
                                                                                      (statusbar-push (builder-get-object builder "statusbar1")
-                                                                                                      "times"
-                                                                                                      (format nil "~A times" c))))
+                                                                                                     "times"
+                                                                                                     (format nil "~A times" c))))
                                                   ("quit_cb" ,(lambda (&rest args)
                                                                       (print args)
                                                                       (object-destroy (builder-get-object builder "window1"))))
@@ -577,7 +749,7 @@
                                                                                                :logo-icon-name "gtk-apply")))
                                                                          (dialog-run d)
                                                                          (object-destroy d)))))))
-      (g-signal-connect (builder-get-object builder "window1") "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
+      (connect-signal (builder-get-object builder "window1") "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
       (statusbar-push (builder-get-object builder "statusbar1") "times" "0 times")
       (widget-show (builder-get-object builder "window1")))))
 
@@ -684,59 +856,60 @@
                                                   ("about" ,#'about)
                                                   ("quit" ,#'quit)
                                                   ("eval" ,#'cb-eval)))
-        (g-signal-connect window "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
-        (g-signal-connect (text-view-buffer text-view) "changed" (lambda (b) (declare (ignore b)) (setf modified-p t) (set-properties)))
+        (connect-signal window "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
+        (connect-signal (text-view-buffer text-view) "changed" (lambda (b) (declare (ignore b)) (setf modified-p t) (set-properties)))
         (widget-show window)))))
 
 (defun demo-class-browser ()
   "Show slots of a given class"
   (let ((output *standard-output*))
-    (with-main-loop
-        (let* ((window (make-instance 'gtk-window
-                                      :window-position :center
-                                      :title "Class Browser"
-                                      :default-width 400
-                                      :default-height 600))
-               (search-entry (make-instance 'entry))
-               (search-button (make-instance 'button :label "Search"))
-               (scroll (make-instance 'scrolled-window
-                                      :hscrollbar-policy :automatic
-                                      :vscrollbar-policy :automatic))
-               (slots-model (make-instance 'array-list-store))
-               (slots-list (make-instance 'tree-view :model slots-model)))
-          (let ((v-box (make-instance 'v-box))
-                (search-box (make-instance 'h-box)))
-            (container-add window v-box)
-            (box-pack-start v-box search-box :expand nil)
-            (box-pack-start search-box search-entry)
-            (box-pack-start search-box search-button :expand nil)
-            (box-pack-start v-box scroll)
-            (container-add scroll slots-list))
-          (store-add-column slots-model "gchararray"
-                            (lambda (slot)
-                              (format nil "~S" (closer-mop:slot-definition-name slot))))
-          (let ((col (make-instance 'tree-view-column :title "Slot name"))
-                (cr (make-instance 'cell-renderer-text)))
-            (tree-view-column-pack-start col cr)
-            (tree-view-column-add-attribute col cr "text" 0)
-            (tree-view-append-column slots-list col))
-          (labels ((display-class-slots (class)
-                     (format output "Displaying ~A~%" class)
-                     (loop
-                        repeat (store-items-count slots-model)
-                        do (store-remove-item slots-model (store-item slots-model 0)))
-                     (closer-mop:finalize-inheritance class)
-                     (loop
-                        for slot in (closer-mop:class-slots class)
-                        do (store-add-item slots-model slot)))
-                   (on-search-clicked (button)
-                     (declare (ignore button))
-                     (with-gtk-message-error-handler
-                         (let* ((class-name (read-from-string (entry-text search-entry)))
-                                (class (find-class class-name)))
-                           (display-class-slots class)))))
-            (g-signal-connect search-button "clicked" #'on-search-clicked))
-          (widget-show window)))))
+    (within-main-loop
+      (let* ((window (make-instance 'gtk-window
+                                    :window-position :center
+                                    :title "Class Browser"
+                                    :default-width 400
+                                    :default-height 600))
+             (search-entry (make-instance 'entry))
+             (search-button (make-instance 'button :label "Search"))
+             (scroll (make-instance 'scrolled-window
+                                    :hscrollbar-policy :automatic
+                                    :vscrollbar-policy :automatic))
+             (slots-model (make-instance 'array-list-store))
+             (slots-list (make-instance 'tree-view :model slots-model)))
+        (let ((v-box (make-instance 'v-box))
+              (search-box (make-instance 'h-box)))
+          (container-add window v-box)
+          (box-pack-start v-box search-box :expand nil)
+          (box-pack-start search-box search-entry)
+          (box-pack-start search-box search-button :expand nil)
+          (box-pack-start v-box scroll)
+          (container-add scroll slots-list))
+        (store-add-column slots-model "gchararray"
+                          (lambda (slot)
+                            (format nil "~S" (closer-mop:slot-definition-name slot))))
+        (let ((col (make-instance 'tree-view-column :title "Slot name"))
+              (cr (make-instance 'cell-renderer-text)))
+          (tree-view-column-pack-start col cr)
+          (tree-view-column-add-attribute col cr "text" 0)
+          (tree-view-append-column slots-list col))
+        (labels ((display-class-slots (class)
+                   (format output "Displaying ~A~%" class)
+                   (loop
+                      repeat (store-items-count slots-model)
+                      do (store-remove-item slots-model (store-item slots-model 0)))
+                   (closer-mop:finalize-inheritance class)
+                   (loop
+                      for slot in (closer-mop:class-slots class)
+                      do (store-add-item slots-model slot)))
+                 (on-search-clicked (button)
+                   (declare (ignore button))
+                   (with-gtk-message-error-handler
+                     (let* ((class-name (read-from-string (entry-text search-entry)))
+                            (class (find-class class-name)))
+                       (display-class-slots class)))))
+          (connect-signal search-button "clicked" #'on-search-clicked))
+        (connect-signal window "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
+        (widget-show window)))))
 
 (defun make-tree-from-sexp (l)
   (setf l (if (listp l) l (list l)))
@@ -768,7 +941,7 @@
             (tree-view-tooltip-column tree-view) 0)
       (connect-signal tree-view "row-activated" (lambda (tv path column)
                                                   (declare (ignore tv column))
-                                                  (format t "You clicked on row ~A~%" (tree-path-indices path))))
+                                                  (show-message (format nil "You clicked on row ~A" (tree-path-indices path)))))
       (connect-signal button "clicked" (lambda (b)
                                          (declare (ignore b))
                                          (let ((object (read-from-string (entry-text entry))))
@@ -796,6 +969,7 @@
         (tree-view-append-column tree-view column)
         (print (tree-view-column-tree-view column))
         (print (tree-view-column-cell-renderers column)))
+      (connect-signal window "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
       (widget-show window))))
 
 (defclass custom-window (gtk-window)
@@ -827,6 +1001,7 @@
   "Simple test of non-GObject subclass of GtkWindow"
   (within-main-loop
     (let ((w (make-instance 'custom-window)))
+      (connect-signal w "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
       (widget-show w))))
 
 (defun test-assistant ()
@@ -859,14 +1034,15 @@
         (let ((w (make-instance 'label :label "A label in action area")))
           (widget-show w)
           (assistant-add-action-widget d w))
+        (connect-signal d "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
         (connect-signal d "cancel" (lambda (assistant)
                                      (declare (ignore assistant))
                                      (object-destroy d)
-                                     (format output "Canceled~%")))
+                                     (show-message "Canceled")))
         (connect-signal d "close" (lambda (assistant)
                                     (declare (ignore assistant))
                                     (object-destroy d)
-                                    (format output "Thank you, ~A~%" (entry-text entry))))
+                                    (show-message (format nil "Thank you, ~A!" (entry-text entry)))))
         (connect-signal d "prepare" (lambda (assistant page-widget)
                                       (declare (ignore assistant page-widget))
                                       (format output "Assistant ~A has ~A pages and is on ~Ath page~%"
@@ -890,42 +1066,8 @@
              (e (make-instance 'entry :completion completion)))
         (setf (entry-completion-text-column completion) 0)
         (container-add w e))
+      (connect-signal w "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
       (widget-show w))))
-
-(defun demo-all ()
-  (within-main-loop
-    (let* ((window (make-instance 'gtk-window
-                                  :title "cl-gtk2-gtk demo"
-                                  :window-position :center
-                                  :default-width 500
-                                  :default-height 500))
-           (scrolled (make-instance 'scrolled-window
-                                    :hscrollbar-policy :automatic
-                                    :vscrollbar-policy :automatic))
-           (viewport (make-instance 'viewport))
-           (v-box-buttons (make-instance 'v-box))
-           (v-box-top (make-instance 'v-box)))
-      (container-add window v-box-top)
-      (box-pack-start v-box-top (make-instance 'label :label "These are the demos of cl-gtk2-gtk:") :expand nil)
-      (box-pack-start v-box-top scrolled)
-      (container-add scrolled viewport)
-      (container-add viewport v-box-buttons)
-      (iter (for s in-package :gtk-demo :external-only t)
-            (for fn = (fdefinition s))
-            (unless fn (next-iteration))
-            (when (eq s 'gtk-demo:demo-all) (next-iteration))
-            (for docstring = (documentation fn t))
-            (for description = (format nil "~A~@[~%~A~]" (string-downcase (symbol-name s)) docstring))
-            (for label = (make-instance 'label :label description :justify :center))
-            (for button = (make-instance 'button))
-            (container-add button label)
-            (connect-signal button "clicked"
-                            (let ((fn fn))
-                              (lambda (b)
-                                (declare (ignore b))
-                                (funcall fn))))
-            (box-pack-start v-box-buttons button :expand nil))
-      (widget-show window))))
 
 (defun test-ui-markup ()
   (within-main-loop
@@ -956,6 +1098,7 @@
                             (label :label "2 x 1") :left 0 :right 2 :top 0 :bottom 1
                             (label :label "1 x 1") :left 0 :right 1 :top 1 :bottom 2
                             (label :label "1 x 1") :left 1 :right 2 :top 1 :bottom 2)))
+        (connect-signal w "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
         (connect-signal btn "clicked"
                         (lambda (b)
                           (declare (ignore b))
@@ -1005,6 +1148,7 @@
                                                         :buttons :ok)))
                             (dialog-run dialog)
                             (object-destroy dialog)))))
+      (connect-signal w "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
       (widget-show w))))
 
 (defun test-tree-store ()
@@ -1053,6 +1197,7 @@
                                                         :buttons :ok)))
                             (dialog-run dialog)
                             (object-destroy dialog)))))
+      (connect-signal w "destroy" (lambda (w) (declare (ignore w)) (leave-gtk-main)))
       (widget-show w))))
 
 (defun test-gdk-expose (gdk-window)
@@ -1094,19 +1239,16 @@
   "Test various gdk primitives"
   (within-main-loop
     (let ((window (make-instance 'gtk-window :type :toplevel :app-paintable t)))
-      (g-signal-connect window "destroy" (lambda (widget)
-                                           (declare (ignore widget))
-                                           (leave-gtk-main)))
-      (g-signal-connect window "destroy" (lambda (widget)
-                                           (declare (ignore widget))
-                                           (leave-gtk-main)))
-      (g-signal-connect window "expose-event"
-                        (lambda (widget event)
-                          (declare (ignore widget event))
-                          (test-gdk-expose (widget-window window))))
-      (g-signal-connect window "configure-event"
-                        (lambda (widget event)
-                          (declare (ignore widget event))
-                          (widget-queue-draw window)))
+      (connect-signal window "destroy" (lambda (widget)
+                                         (declare (ignore widget))
+                                         (leave-gtk-main)))
+      (connect-signal window "expose-event"
+                      (lambda (widget event)
+                        (declare (ignore widget event))
+                        (test-gdk-expose (widget-window window))))
+      (connect-signal window "configure-event"
+                      (lambda (widget event)
+                        (declare (ignore widget event))
+                        (widget-queue-draw window)))
       (widget-show window)
       (push :pointer-motion-mask (gdk-window-events (widget-window window))))))

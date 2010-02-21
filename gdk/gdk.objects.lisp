@@ -579,7 +579,7 @@
 
 (export (boxed-related-symbols 'color))
 
-(define-g-object-class "GdkDrawable" drawable ()
+(define-g-object-class "GdkDrawable" drawable (:type-initializer "gdk_drawable_get_type")
   ((:cffi display drawable-display (g-object display)
           "gdk_drawable_get_display" nil)
    (:cffi screen drawable-screen (g-object screen)
@@ -596,7 +596,13 @@
           "gdk_drawable_get_visible_region" nil)))
 
 (define-g-object-class "GdkWindow" gdk-window (:superclass drawable)
-   ((:cffi window-type gdk-window-window-type gdk-window-type
+   (#+gtk-2.18
+    (cursor gdk-window-cursor "cursor"
+            "GdkCursor" t t)
+    #-gtk-2.18
+    (:cffi cursor gdk-window-cursor (g-boxed-foreign cursor :return)
+           "gdk_window_get_cursor" "gdk_window_set_cursor")
+    (:cffi window-type gdk-window-window-type gdk-window-type
            "gdk_window_get_window_type" nil)
     (:cffi is-destroyed gdk-window-is-destroyed :boolean
            "gdk_window_is_destroyed" nil)
@@ -822,7 +828,7 @@
 
 (export (boxed-related-symbols 'event))
 
-(define-g-object-class "GdkDragContext" drag-context ()
+(define-g-object-class "GdkDragContext" drag-context (:type-initializer "gdk_drag_context_get_type")
   ((:cffi protocol drag-context-protocol gdk-drag-protocol
           %gdk-drag-context-get-protocol nil)
    (:cffi is-source drag-context-is-source :boolean
@@ -842,7 +848,7 @@
    (:cffi start-time drag-context-start-time :uint32
           %gdk-drag-context-get-start-time nil)))
 
-(define-g-object-class "GdkPixbuf" pixbuf ()
+(define-g-object-class "GdkPixbuf" pixbuf (:type-initializer "gdk_pixbuf_get_type")
     ((colorspace pixbuf-colorspace "colorspace" "GdkColorspace" t nil)
      (n-channels pixbuf-n-channels "n-channels" "gint" t nil)
      (has-alpha pixbuf-has-alpha "has-alpha" "gboolean" t nil)
@@ -852,7 +858,7 @@
      (rowstride pixbuf-rowstride "rowstride" "gint" t nil)
      (pixels pixbuf-pixels "pixels" "gpointer" t nil)))
 
-(define-g-object-class "GdkPixbufAnimation" pixbuf-animation ()
+(define-g-object-class "GdkPixbufAnimation" pixbuf-animation (:type-initializer "gdk_pixbuf_animation_get_type")
     nil) 
 
 (define-g-object-class "GdkImage" gdk-image
@@ -862,7 +868,7 @@
   ((:cffi colormap gdk-image-colormap (g-object gdk-colormap)
           "gdk_image_get_colormap" "gdk_image_set_colormap")))
 
-(define-g-object-class "GdkDisplay" display ()
+(define-g-object-class "GdkDisplay" display (:type-initializer "gdk_display_get_type")
   ((:cffi name display-name (glib:g-string :free-from-foreign nil)
           "gdk_display_get_name" nil)
    (:cffi n-screens display-n-screens :int
@@ -892,12 +898,12 @@
    (:cffi core-pointer display-core-pointer g-object
           "gdk_display_get_core_pointer" nil)))
 
-(define-g-object-class "GdkDisplayManager" display-manager ()
+(define-g-object-class "GdkDisplayManager" display-manager (:type-initializer "gdk_display_manager_get_type")
   ((default-display display-manager-default-display "default-display" "GdkDisplay" t t)
    (:cffi displays display-manager-displays (glib:gslist (g-object display) :free-from-foreign t)
           "gdk_display_manager_list_displays" nil)))
 
-(define-g-object-class "GdkVisual" visual ()
+(define-g-object-class "GdkVisual" visual (:type-initializer "gdk_visual_get_type")
   ((:cffi screen visual-screen (g-object screen) "gdk_visual_get_screen" nil)
    (:cffi visual-type visual-visual-type visual-type gdk-visual-get-visual-type nil)
    (:cffi depth visual-depth :int gdk-visual-get-depth nil)
@@ -923,7 +929,7 @@
    (:cffi screen colormap-screen (g-object screen)
           "gdk_colormap_get_screeen" nil)))
 
-(define-g-object-class "GdkScreen" screen ()
+(define-g-object-class "GdkScreen" screen (:type-initializer "gdk_screen_get_type")
   ((font-options screen-font-options "font-options" "gpointer" t t)
    (resolution screen-resolution "resolution" "gdouble" t t)
    (:cffi default-colormap screen-default-colormap (g-object colormap)
@@ -969,7 +975,7 @@
    (:cffi window-stack screen-window-stack (glib:glist (g-object gdk-window) :free-from-foreign t)
           "gdk_screen_get_window_stack" nil)))
 
-(define-g-object-class "GdkGC" graphics-context ()
+(define-g-object-class "GdkGC" graphics-context (:type-initializer "gdk_gc_get_type")
   ((:cffi screen graphics-context-screen (g-object screen)
           "gdk_gc_get_screen" nil)
    (:cffi foreground graphics-context-foreground (g-boxed-foreign color)
@@ -1003,7 +1009,7 @@
    (:cffi colormap graphics-context-colormap (g-object colormap)
           "gdk_gc_get_colormap" "gdk_gc_set_colormap")))
 
-(define-g-object-class "GdkPixmap" pixmap (:superclass drawable) ())
+(define-g-object-class "GdkPixmap" pixmap (:superclass drawable :type-initializer "gdk_pixmap_get_type") ())
 
 (define-g-object-class "GdkKeymap" keymap
   (:superclass g-object :export t :interfaces

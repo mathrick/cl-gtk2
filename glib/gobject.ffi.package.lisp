@@ -1,14 +1,13 @@
 (defpackage :gobject.ffi
-  (:use :cl :cffi :glib :trivial-garbage)
+  (:use :cl :cffi :glib :trivial-garbage :iter)
   (:export #:g-type
            #:g-type-designator
-           #:g-type-name
-           #:g-type-from-name
+           #:gtype
+           #:gtype-id
+           #:gtype-name
            #:g-type
            #:g-type-fundamental
            #:%g-type-init
-           #:g-type-name
-           #:g-type-from-name
            #:g-type-parent
            #:g-type-depth
            #:g-type-next-base
@@ -196,8 +195,6 @@
            #:lisp-closure
            #:g-object-struct
            #:g-signal-list-ids
-           #:g-type-string
-           #:g-type-numeric
            #:g-signal-parse-name
            #:g-type=
            #:g-type/=))

@@ -26,6 +26,7 @@
                (:file "gtk.dialog")
                (:file "gtk.window")
                (:file "gtk.window-group")
+               (:file "gtk.icon-factory")
                (:file "gtk.image")
                (:file "gtk.label")
                (:file "gtk.progress-bar")
@@ -34,6 +35,8 @@
                (:file "gtk.scale-button")
                (:file "gtk.entry")
                (:file "gtk.spin-button")
+               (:file "gtk.selections")
+               (:file "gtk.dnd")
                (:file "gtk.text")
                (:file "gtk.tree-model")
                (:file "gtk.tree-view-column")
@@ -61,6 +64,8 @@
                (:file "gtk.link-button")
                (:file "gtk.list-store")
                (:file "gtk.tree-store")
+               (:file "gtk.tree-model-filter")
+               (:file "gtk.clipboard")
                
                (:file "gtk.main-loop-events")
                
