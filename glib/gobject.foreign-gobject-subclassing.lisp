@@ -106,7 +106,42 @@
 
 (defstruct vtable-description type-name cstruct-name methods)
 
+(defmacro call-gmethod (method-name type-name safe-p &rest args)
+  (let* ((vtable-desc (cond ((stringp type-name)
+                              (gethash type-name *vtables*))
+                            ((symbolp type-name)
+                              (gethash (gethash type-name *vtable-names*) *vtables*))))
+         (cstruct-name (vtable-description-cstruct-name vtable-desc))
+         (type-name (vtable-description-type-name vtable-desc))
+         (method (find method-name (vtable-description-methods vtable-desc)
+                       :key #'vtable-method-info-slot-name)))
+    `(let* ((iface-type (gtype ,type-name))
+            (type (g-type-class-ref (gtype type-name)))
+            (vtable
+             ;; FIXME: Without full introspection, we have no way to figure out if non-interface
+             ;; types implement the method too.
+             (cond
+               ((g-type-is-interface iface-type)
+                 (%g-type-interface-peek type iface-type))
+               ((and (g-type-is-object iface-type)
+                     ,safe-p)
+                 type))))
+       (if vtable
+           (let ((ptr (foreign-slot-value vtable
+                                          ',cstruct-name
+                                          ',(vtable-method-info-slot-name method))))
+             (log-for :subclass "Calling foreign pointer ~A" ptr)
+             (foreign-funcall-pointer ptr
+                                      ()
+                                      ,@args
+                                      ,(vtable-method-info-return-type method)))
+         (call-next-method)))))
+
 (defmacro call-next-gmethod (method-name type-name parent-safe-p)
+  ;; Duplicating the text of CALL-GMETHOD here is disgusting and bad
+  ;; form, but it's the simplest way to deal with CFFI only exposing
+  ;; macro API. I tried more elegant ones, and it turned out to be a
+  ;; hell.
   (let* ((vtable-desc (if (stringp type-name)
                           (gethash type-name *vtables*)
                           (gethash (gethash *vtable-names* type-name) *vtables*)))
@@ -117,7 +152,7 @@
          (cffi-args (mapcan #'reverse (vtable-method-info-args method)))
          (item (second cffi-args))
          )
-   `(let* ((iface-type (g-type-from-name ,type-name))
+   `(let* ((iface-type (gtype ,type-name))
            (parent-type (g-type-class-ref (g-type-parent (g-type-from-instance (pointer ,item)))))
            (vtable
             ;; FIXME: Without full introspection, we have no way to figure out if non-interface

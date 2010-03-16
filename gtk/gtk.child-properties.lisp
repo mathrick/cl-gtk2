@@ -36,7 +36,7 @@
     (when getter
       (with-foreign-object (gvalue 'g-value)
         (g-value-zero gvalue)
-        (g-value-init gvalue (ensure-g-type type))
+        (g-value-init gvalue (gtype type))
         (funcall getter container child property-name gvalue)
         (prog1 (parse-g-value gvalue)
           (g-value-unset gvalue))))))
@@ -45,7 +45,7 @@
   (let ((setter (container-get-property-setter container)))
     (when setter
       (with-foreign-object (gvalue 'g-value)
-        (set-g-value gvalue new-value (ensure-g-type type) :zero-g-value t)
+        (set-g-value gvalue new-value (gtype type) :zero-g-value t)
         (funcall setter container child property-name gvalue)
         (g-value-unset gvalue)
         (values)))))
@@ -88,7 +88,7 @@
                  (mapcar #'container-class-list-child-properties-fn
                          (apply #'list g-type (g-type-interfaces g-type))))))
     (when list-properties-fns
-      (setf g-type (ensure-g-type (typecase g-type
+      (setf g-type (gtype (typecase g-type
                                     (integer g-type)
                                     (t (string g-type)))))
      (let ((g-class (g-type-class-ref g-type)))
